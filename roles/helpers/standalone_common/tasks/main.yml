@@ -1,8 +1,0 @@
----
-
-- name: Include role load_extra_vars.yml
-  vars:
-    env_vars_keys: "{{ ansible_env | select('match', '^'+extra_vars_prefx) | list }}"
-  when: env_vars_keys | length > 0
-  ansible.builtin.include_tasks:
-    file: load_extra_vars.yml

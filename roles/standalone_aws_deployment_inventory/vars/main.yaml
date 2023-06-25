@@ -1,2 +1,0 @@
-output: "{{ aws_foundation_stack_name}}"
-regions: []

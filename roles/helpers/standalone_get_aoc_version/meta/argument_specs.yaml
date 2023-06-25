@@ -1,8 +1,0 @@
----
-
-argument_specs:
-  main:
-    # Create a multline string that creates a list of strings
-    description:
-      - Retrieve the AOC AAP version
-    short_description: This role retrieve the AOC AAP version .
