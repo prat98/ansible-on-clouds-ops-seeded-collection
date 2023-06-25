@@ -1,0 +1,29 @@
+- name: Nodes health check
+  hosts: localhost
+  connection: redhat.ansible_on_clouds.gcp_ssh
+  remote_user: awx
+
+  tasks:
+
+    - name: Check Operations images and Ansible on Cloud deployment versions
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+        apply:
+          vars:
+            ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/aap"
+
+    # This is needed as check_monitoring: "{{ check_monitoring }}" generates a loop
+    - name: "[nodes_health] Set monitoring values"
+      ansible.builtin.set_fact:
+        _check_monitoring: "{{ check_monitoring | default(true) }}"
+
+    - name: Check controllers and hub health
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_gcp_nodes_health_check
+        apply:
+          vars:
+            hubs: "{{ groups['aap_hubs'] }}"
+            controllers: "{{ groups['aap_controllers'] }}"
+            check_monitoring: "{{ _check_monitoring }}"

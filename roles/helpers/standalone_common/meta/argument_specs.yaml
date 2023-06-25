@@ -1,0 +1,41 @@
+---
+
+argument_specs:
+  main:
+    # Create a multline string that creates a list of strings
+    description:
+      - Install monitoring tools and configure them to send data to the Google Cloud Monitoring service.
+    # ADD NEW ATTRIBUTES
+    # components -> description
+    #   field required (type=value_error.missing)
+    # db_user -> description
+    #   field required (type=value_error.missing)
+    # default_collector_interval -> description
+    #   field required (type=value_error.missing)
+    # logging_enabled -> description
+    #   field required (type=value_error.missing)
+    # monitoring_enabled -> description
+    #   field required (type=value_error.missing)
+    short_description: This role setup the logging and monitoring.
+    options:
+      components:
+        description:
+          - TODO_DOC_HERE
+        type: "list"
+        elements: "str"
+      monitoring_enabled:
+        description:
+          - TODO_DOC_HERE
+        type: "bool"
+      logging_enabled:
+        description:
+          - TODO_DOC_HERE
+        type: "bool"
+      default_collector_interval:
+        description:
+          - TODO_DOC_HERE
+        type: "str"
+      db_user:
+        description:
+          - TODO_DOC_HERE
+        type: "str"

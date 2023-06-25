@@ -1,0 +1,19 @@
+- name: Get AOC version
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  tasks:
+
+  - name: Get AOC version
+    ansible.builtin.include_role:
+      name: redhat.ansible_on_clouds.helpers.standalone_get_aoc_version
+      apply:
+        vars:
+          ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+          hubs: "{{ groups['aap_hubs'] }}"
+          filesystem: "/aap"
+
+  - name: Print version
+    ansible.builtin.debug:
+      msg: "The AOC version is {{ aoc_version }}"

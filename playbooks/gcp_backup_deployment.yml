@@ -1,0 +1,39 @@
+# gcp_backup_deployment.yaml
+
+# This playbook is used to backup the AoC Self-managed GCP environment.
+#
+# Input variables:
+#     gcp_deployment_name:                                   # GCP foundation deployment name
+#     gcp_compute_region: ""                                 # GCP region
+#     gcp_compute_zone: ""                                   # GCP zone
+
+# ---
+
+- name: GCP backup AAP foundation deployment
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  vars:
+    # Default values
+    gcp_deployment_name: ""                              # GCP foundation deployment name
+    gcp_compute_region: ""                               # GCP region
+    gcp_compute_zone: ""                                 # GCP zone
+
+  tasks:
+    - name: Check Operations images and Ansible on Cloud deployment versions
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+        apply:
+          vars:
+            ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/aap"
+
+    - name: "Load 'auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: "Load 'backup' task file"
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.standalone_gcp_backup

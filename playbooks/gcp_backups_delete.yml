@@ -1,0 +1,14 @@
+---
+
+- name: GCP backupa delete
+  hosts: localhost
+  connection: local
+
+  tasks:
+    - name: "Load 'auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: "Load 'backups delete' task file"
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.standalone_gcp_backups_delete

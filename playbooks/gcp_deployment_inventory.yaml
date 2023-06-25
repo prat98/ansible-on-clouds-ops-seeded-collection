@@ -1,0 +1,9 @@
+- name: Generate Inventory for deployment {{ gcp_deployment_name }}
+  hosts: localhost
+  connection: local
+
+  tasks:
+
+  - name: Generate deployment inventory
+    ansible.builtin.include_role:
+      name: standalone_gcp_deployment_inventory

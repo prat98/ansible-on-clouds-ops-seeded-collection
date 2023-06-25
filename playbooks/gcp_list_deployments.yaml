@@ -1,0 +1,36 @@
+---
+- name: List existing Ansible Automation Platform on Google Cloud Platform deployments
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  vars:
+    gcp_service_account_credentials_json_path: ./path/to/credentials.json
+    gcp_compute_region: "us-east1"
+    gcp_compute_zone: "us-east1-b"
+    gcp_project_id: "{{ (lookup('file', gcp_service_account_credentials_json_path) | from_json).project_id }}"
+
+  tasks:
+    - name: "Load 'gcloud_auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: Check for existing deployment {{ gcp_deployment_name }}
+      environment:
+        # Set environment variables
+        CLOUDSDK_CORE_ACCOUNT: "{{ (lookup('file', gcp_service_account_credentials_json_path) | from_json).client_email }}"
+        CLOUDSDK_CORE_PROJECT: "{{ (lookup('file', gcp_service_account_credentials_json_path) | from_json).project_id }}"
+        CLOUDSDK_COMPUTE_REGION: "{{ gcp_compute_region }}"
+        CLOUDSDK_COMPUTE_ZONE: "{{ gcp_compute_zone }}"
+
+      block:
+        - name: Get deployments list
+          ansible.builtin.command:
+            cmd: "gcloud deployment-manager deployments list --format='table[no-heading](name)'"
+          register: deployment_list
+          changed_when: false
+
+        - name: Show deployment list
+          ansible.builtin.debug:
+            msg:
+              - "Deployment list: {{ deployment_list.stdout_lines }}"

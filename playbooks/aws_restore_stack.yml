@@ -1,0 +1,27 @@
+# aws_restore_stack.yaml
+
+# This playbook is used to backup the AoC Self-managed AWS environment.
+#
+# Input variables:
+# aws_foundation_stack_name: ""                            # AAP foundation stack name
+# aws_restored_stack_name: ""                              # Stack name of restored AAP foundation created by playbook
+# aws_region: us-east-1                                    # AWS region
+# aws_backup_vault_name: ""                                # AWS backup vault name. ex - aws/efs/automatic-backup-vault
+# aws_rds_db_snapshot_arn: ""                              # The ARN of the RDS snapshot to use when restoring the stack
+# aws_backup_restore_point_arn: ""                         # The ARN of the EFS recovery point to use when restoring the stack
+# aws_backup_iam_role_arn: ""                              # AWS backup role name. ex - arn:aws:iam::<Account-ID>:role/service-role/AWSBackupDefaultServiceRole
+# aws_s3_bucket: ""                                        # AWS S3 bucket name. Used to upload cloudformation template
+
+---
+
+- name: AWS restore stack
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: "Load 'auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_aws_core_dev/tasks/auth.yaml"
+
+    - name: "Run AWS Restore Stack Role"
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.standalone_aws_restore

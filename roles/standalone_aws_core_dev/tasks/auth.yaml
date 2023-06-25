@@ -1,0 +1,41 @@
+# aws_auth
+#
+# This task authenticates with AWS using environment variables or an AAP credential
+#
+# The following environment variables are required (or AAP credential) -
+# - AWS_ACCESS_KEY_ID
+# - AWS_SECRET_ACCESS_KEY
+#
+# The following parameters are required:
+# - aws_foundation_stack_name
+# - aws_region
+
+---
+
+- name: "[auth] Prepare environment"
+  block:
+    - name: "[auth] Assert vars are defined"
+      loop:
+        - aws_foundation_stack_name
+        - aws_region
+      ansible.builtin.assert:
+        that: 
+          - "{{ item }} is defined"
+          - "{{ item }} != ''"
+        msg: "Variable {{ item }} is not defined"
+    - name: "[auth] Configure AWS environment"
+      ansible.builtin.set_fact:
+        aws_env_auth_vars:
+          AWS_ACCESS_KEY_ID: '{{ lookup("env", "AWS_ACCESS_KEY_ID") }}'
+          AWS_SECRET_ACCESS_KEY: '{{ lookup("env", "AWS_SECRET_ACCESS_KEY") }}'
+          AWS_DEFAULT_REGION: '{{ aws_region }}'
+          AWS_DEFAULT_OUTPUT: 'json'
+    - name: "[auth] getwhoami"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell:
+        cmd: "aws sts get-caller-identity"
+      register: authdebug
+    - name: "[auth] whoami"
+      environment: "{{ aws_env_auth_vars }}"
+      debug:
+        msg: "{{ authdebug.stdout }}"

@@ -1,0 +1,39 @@
+# awx_upgrade
+#
+#
+# Default vars
+# aws_foundation_stack_name: ""
+# aws_region: us-east-1
+# aws_s3_bucket_name: ""
+# aws_ssm_auth_vars:
+#   ansible_aws_ssm_bucket_name: ""
+#   ansible_connection: aws_ssm
+#   ansible_aws_ssm_region: us-east-1
+#   ansible_aws_ssm_s3_addressing_style: virtual
+
+---
+
+- name: Upgrade deployment
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Check Operations images and Ansible on Cloud deployment versions
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+        apply:
+          vars:
+            ansible_connection: "aws_ssm"
+            ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+            ansible_aws_ssm_region: "{{ aws_region }}"
+            ansible_aws_ssm_s3_addressing_style: "virtual"
+            ansible_python_interpreter: /usr/bin/python3
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/efs"
+
+    - name: "Load 'common_vars' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_aws_core_dev/tasks/common_vars.yaml"
+
+    - name: Include role 'standalone_aws_upgrade'
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.standalone_aws_upgrade

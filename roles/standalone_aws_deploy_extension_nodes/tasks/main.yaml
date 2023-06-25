@@ -1,0 +1,189 @@
+# aws_deploy_extension_nodes
+#
+# The following parameters are required:
+# - aws_foundation_stack_name
+# - aws_region
+# - aws_launch_template_name
+# - aws_autoscaling_group_name
+# - aws_asg_min_size
+# - aws_asg_desired_capacity
+# - aws_offer_type
+
+# The following variables will be populated:
+# - aws_instance_type
+# - aws_asg_max_size
+# - aws_ami_id
+---
+
+- name: "[deploy_extension_nodes] Add extension nodes"
+  block:
+    - name: "[deploy_extension_nodes] Assert vars are defined"
+      loop:
+        - aws_foundation_stack_name
+        - aws_region
+        - aws_launch_template_name
+        - aws_autoscaling_group_name
+        - aws_asg_min_size
+        - aws_asg_desired_capacity
+        - aws_offer_type
+      ansible.builtin.assert:
+        that: 
+          - "{{ item }} is defined"
+          - "{{ item }} != ''"
+        msg: "Variable {{ item }} is not defined"
+
+    - name: "Configure region"
+      ansible.builtin.shell:
+        cmd: aws configure set region "{{ aws_region }}"
+    
+    - name: "Run update extension node vars"
+      ansible.builtin.include_tasks: vars.yaml
+    
+    - name: "[remove_extension_nodes] Assert vars are defined"
+      loop:
+        - aws_instance_type
+        - aws_asg_max_size
+        - aws_ami_id
+      ansible.builtin.assert:
+        that: 
+          - "{{ item }} is defined"
+          - "{{ item }} != ''"
+        msg: "Variable {{ item }} is not defined"
+    
+    - name: Get stack summary information
+      amazon.aws.cloudformation_info:
+        stack_name: "{{ aws_foundation_stack_name }}"
+        stack_resources: true
+        stack_template: true
+      register: stack_info
+    
+    - name: Set stack specific facts
+      ansible.builtin.set_fact:
+        stack_resource_list: "{{ stack_info.cloudformation[aws_foundation_stack_name].stack_resource_list }}"
+        stack_parameters: "{{ stack_info.cloudformation[aws_foundation_stack_name].stack_description.parameters }}"
+        _stack_id: "{{ stack_info.cloudformation[aws_foundation_stack_name].stack_description.stack_id }}"
+    
+    - name: Get controller autoscaling group name
+      vars:
+        stack_resources_query: "[?resource_type=='AWS::AutoScaling::AutoScalingGroup' && contains(physical_resource_id, `controller`)].physical_resource_id"
+      loop: "{{ stack_resource_list | community.general.json_query(stack_resources_query) }}"
+      ansible.builtin.set_fact:
+        _stack_controller_asg_name: "{{ item }}"
+    
+    - name: "Get autoscaling group info"
+      amazon.aws.autoscaling_group_info:
+        name: "{{ _stack_controller_asg_name }}"
+        region: "{{ aws_region }}"
+      register: tmp_autoscaling_group_info
+    
+    - name: "Get autoscaling group launch config"
+      ansible.builtin.set_fact:
+        _launch_config_name: "{{ tmp_autoscaling_group_info.results[0].launch_config_name }}"
+      register: tmp_autoscaling_group_info
+    
+    - name: Get group launch configuration info
+      community.aws.autoscaling_launch_config_info:
+        name: "{{ _launch_config_name }}"
+      register: _tmp_lc_info
+    
+    - name: "Set launch config fact"
+      ansible.builtin.set_fact:
+        _launch_config_data: "{{ _tmp_lc_info.launch_configurations[0] }}"
+    
+    - name: "[deploy_extension_nodes] Set launch template facts"
+      ansible.builtin.set_fact:
+        key_name: "{{ _launch_config_data.key_name }}"
+        security_groups: "{{ _launch_config_data.security_groups }}"
+        user_data: "{{ _launch_config_data.user_data }}"
+        block_device_mappings: "{{ _launch_config_data.block_device_mappings }}"
+        iam_instance_profile: "{{ _launch_config_data.iam_instance_profile }}"
+        ebs_optimized: "{{ _launch_config_data.ebs_optimized }}"
+    
+    - name: Create a new launch template
+      community.aws.ec2_launch_template:
+        name: "{{ aws_launch_template_name }}"
+        state: present
+        image_id: "{{ aws_ami_id }}"
+        key_name: "{{ key_name }}"
+        user_data: "{{ user_data }}"
+        security_group_ids: "{{ security_groups }}"
+        instance_type: "{{ aws_instance_type }}"
+        block_device_mappings: "{{ block_device_mappings }}"
+        iam_instance_profile: "{{ iam_instance_profile }}"
+        ebs_optimized: "{{ ebs_optimized }}"
+        default_version: "latest"
+      register: create_lt
+    
+    - name: Get launch template ID
+      ansible.builtin.set_fact:
+        _launch_template_id: "{{ create_lt.latest_template.launch_template_id }}"
+    
+    - name: Check if deploying into AAP VPC or Existing VPC
+      vars:
+        stack_params_query: "[?parameter_key=='VpcSelection'].parameter_value"
+      loop: "{{ stack_parameters | community.general.json_query(stack_params_query) }}"
+      ansible.builtin.set_fact:
+        _vpc_deploy_type: "{{ item }}"
+    
+    - name: Check if stack is upgraded (VPCSelection is not set)
+      when: _vpc_deploy_type is undefined
+      ansible.builtin.set_fact:
+        _vpc_deploy_type: "New"
+    
+    - name: Create Subnet ID list
+      ansible.builtin.set_fact:
+        _subnet_ids: "{{ _subnet_ids | default([]) }}"
+
+    - name: Get Subnet IDs (AAP VPC)
+      when: _vpc_deploy_type == "New"
+      block:
+        - name: Get subnets
+          vars:
+            stack_resources_query: "[?resource_type=='AWS::EC2::Subnet'].physical_resource_id"
+          loop: "{{ stack_resource_list | community.general.json_query(stack_resources_query) }}"
+          ansible.builtin.set_fact:
+            _subnet_ids: "{{ _subnet_ids | default([]) + [item] }}"
+    
+    - name: Get Subnet IDs (AAP VPC)
+      when: _vpc_deploy_type == "Existing"
+      block:
+        - name: Get existing private subnet 1
+          vars:
+            stack_parameters_query: "[?parameter_key=='ExistingPrivateSubnet1Id'].parameter_value"
+          loop: "{{ stack_parameters | community.general.json_query(stack_parameters_query) }}"
+          ansible.builtin.set_fact:
+            _subnet_ids: "{{ _subnet_ids | default([]) + [item] }}"
+        - name: Get existing private subnet 2
+          vars:
+            stack_parameters_query: "[?parameter_key=='ExistingPrivateSubnet2Id'].parameter_value"
+          loop: "{{ stack_parameters | community.general.json_query(stack_parameters_query) }}"
+          ansible.builtin.set_fact:
+            _subnet_ids: "{{ _subnet_ids | default([]) + [item] }}"
+
+    - name: Create extension node autoscaling group
+      amazon.aws.autoscaling_group:
+        name: "{{ aws_autoscaling_group_name }}"
+        state: present
+        launch_template:
+            version: '$Latest'
+            launch_template_name: "{{ aws_launch_template_name }}"
+            launch_template_id: "{{ _launch_template_id }}"
+        min_size: "{{ aws_asg_min_size }}"
+        max_size: "{{ aws_asg_max_size }}"
+        desired_capacity: "{{ aws_asg_desired_capacity }}"
+        vpc_zone_identifier: "{{ _subnet_ids }}"
+        tags:
+          - aap:cloudformation:main-stack-name: "{{ aws_foundation_stack_name }}"
+            propogate_at_launch: true
+          - Name: aap/controller/autoscale-group
+            propogate_at_launch: true
+          - component:name: "extension-node"
+            propogate_at_launch: true
+
+    - name: Start an instance refresh for asg - "{{ aws_autoscaling_group_name }}"
+      community.aws.autoscaling_instance_refresh:
+        name: "{{ aws_autoscaling_group_name }}"
+        state: started
+        strategy: Rolling
+        preferences:
+          min_healthy_percentage: 0

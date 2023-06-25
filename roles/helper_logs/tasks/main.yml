@@ -1,0 +1,28 @@
+---
+
+- name: "[helper_logs] Check vars"
+  ansible.builtin.assert:
+    that:
+      - logs_module_name is defined
+      - logs_module_name | length > 0
+
+- name: Block
+  vars:
+    _logs_prune: "{{ logs_prune | default(false) }}"
+    parent_logs_dir: "{{ playbook_dir }}/../logs"
+  block:
+    - name: "[helper_logs] Define logs directory"
+      ansible.builtin.set_fact:
+        logs_dir: "{{ parent_logs_dir }}/{{ logs_module_name }}"
+
+    - name: "[helper_logs] Clean logs directory if 'prune' is set to 'true'"
+      ansible.builtin.file:
+        path: "{{ logs_dir }}"
+        state: absent
+      when: _logs_prune
+
+    - name: "[helper_logs] Create logs directory"
+      ansible.builtin.file:
+        path: "{{ logs_dir }}"
+        state: directory
+        mode: 0755

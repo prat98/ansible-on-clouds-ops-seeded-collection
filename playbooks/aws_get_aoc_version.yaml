@@ -1,0 +1,22 @@
+- name: Get AOC version
+  hosts: localhost
+  connection: local
+
+  tasks:
+
+  - name: Get AOC version
+    ansible.builtin.include_role:
+      name: redhat.ansible_on_clouds.helpers.standalone_get_aoc_version
+      apply:
+        vars:
+          ansible_connection: "aws_ssm"
+          ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+          ansible_aws_ssm_region: "{{ aws_region }}"
+          ansible_aws_ssm_s3_addressing_style: "virtual"
+          ansible_python_interpreter: /usr/bin/python3
+          hubs: "{{ groups['aap_hubs'] }}"
+          filesystem: "/efs"
+
+  - name: Print version
+    ansible.builtin.debug:
+      msg: "The AOC version is {{ aoc_version }}"

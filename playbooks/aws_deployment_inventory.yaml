@@ -1,0 +1,10 @@
+- name: Generate Inventory for deployment {{ aws_foundation_stack_name }}
+  hosts: localhost
+  connection: local
+  vars:
+    aws_foundation_stack_name: "prat-seeded-content"
+  tasks:
+
+  - name: Generate deployment inventory
+    ansible.builtin.include_role:
+      name: redhat.ansible_on_clouds.standalone_aws_deployment_inventory

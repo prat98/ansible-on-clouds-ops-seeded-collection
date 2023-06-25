@@ -1,0 +1,44 @@
+# gcp_deploy
+#
+# This playbook is used to deploy the AoC Self-managed GCP environment from source.
+#
+# Input variables:
+#     gcp_service_account_credentials_json_path: ""       # Path to GCP service account creadential json file
+#     gcp_deployment_name:                                # GCP foundation deployment name
+#     gcp_compute_region: ""                              # GCP region
+#     gcp_compute_zone: ""                                # GCP zone
+
+
+---
+
+- name: Upgrade deployment
+  hosts: localhost
+  connection: redhat.ansible_on_clouds.gcp_ssh
+  remote_user: awx
+
+  tasks:
+
+    - name: Check Operations images and Ansible on Cloud deployment versions
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+        apply:
+          vars:
+            ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/aap"
+
+    - name: "Load 'common_vars' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/common_vars.yaml"
+
+    - name: "Load 'auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: "Load 'upgrade' task file"
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.standalone_gcp_upgrade
+        apply:
+          vars:
+            hubs: "{{ groups['aap_hubs'] }}"
+            controllers: "{{ groups['aap_controllers'] }}"

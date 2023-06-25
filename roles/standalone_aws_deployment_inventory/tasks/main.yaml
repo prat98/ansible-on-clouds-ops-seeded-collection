@@ -1,0 +1,11 @@
+- name: Validate
+  ansible.builtin.assert:
+    that:
+      - aws_foundation_stack_name is not undefined
+      - regions is not undefined
+    msg: "aws_foundation_stack_name must be provided"
+
+- name: Render Inventory template
+  ansible.builtin.template:
+    src: templates/inventory.j2
+    dest: "{{ output }}.aws_ec2.yaml"

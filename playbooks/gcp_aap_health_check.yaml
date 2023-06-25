@@ -1,0 +1,27 @@
+- name: Ansible health check
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  tasks:
+
+    - name: Check Operations images and Ansible on Cloud deployment versions
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+        apply:
+          vars:
+            ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/aap"
+
+    - name: "Load 'common_vars' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/common_vars.yaml"
+
+    - name: "Load 'auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: Check controllers and hub health
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_gcp_aap_health_check

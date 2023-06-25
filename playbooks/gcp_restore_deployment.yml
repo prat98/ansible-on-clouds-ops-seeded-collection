@@ -1,0 +1,45 @@
+# gcp_restore_deployment.yaml
+
+# This playbook is used to backup the AoC Self-managed GCP environment.
+#
+# Input variables:
+# gcp_service_account_credentials_json_path: ""                 # Path to GCP service account creadential json file
+# gcp_deployment_name: ""                                       # GCP foundation deployment name
+# gcp_original_deployment_name: ""                              # Deployment name of restored AAP foundation created by playbook
+# gcp_compute_region: ""                                        # GCP region
+# gcp_compute_zone: ""                                          # GCP zone
+# gcp_filestore_backup_name: ""                                 # Filestore backup name. Must be set to backup filestore
+# gcp_sql_backup_id: ""                                         # Backup ID of the Cloud SQL DB instance to use when restoring the deployment
+# gcp_sql_foundation_db_name: ""                                # GCP foundation SQL DB name 
+
+---
+
+- name: GCP restore stack
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  vars:
+    # Default values
+    gcp_service_account_credentials_json_path: ""            # Path to GCP service account creadential json file
+    gcp_deployment_name: ""                                  # GCP foundation deployment name
+    gcp_original_deployment_name: ""                         # Deployment name of backed up AAP foundation
+    gcp_compute_region: ""                                   # GCP region
+    gcp_compute_zone: ""                                     # GCP zone
+    gcp_filestore_backup_name: ""                            # Filestore backup name. Must be set to backup filestore
+    gcp_sql_backup_id: ""                                    # Backup ID of the Cloud SQL DB instance to use when restoring the deployment
+    gcp_sql_foundation_db_name: ""                           # GCP foundation SQL DB name
+    gcp_existing_vpc: false                                  # if true no VPC will be created
+    gcp_filestore_ip_range: ""                               # The filestore ip range
+    gcp_cloud_sql_peering_network: ""                        # The cloudSQL peering network
+    gcp_controller_internal_ip_address: ""                   # The controller IP address
+    gcp_hub_internal_ip_address: ""                          # The hub IP address
+
+  tasks:
+    - name: "Load 'auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: "Load 'backup' task file"
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.standalone_gcp_restore

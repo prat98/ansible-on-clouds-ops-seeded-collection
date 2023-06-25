@@ -1,0 +1,23 @@
+## demo.aws.yaml
+plugin: "amazon.aws.aws_ec2"
+hostnames: 
+  - name: instance-id
+    prefix: 'tag:Name'
+    separator: "/"
+regions: {{ regions }}
+include_filters: 
+- tag:aws:cloudformation:stack-name:
+  - "{{aws_foundation_stack_name}}"
+- tag:aap:cloudformation:main-stack-name:
+  - "{{aws_foundation_stack_name}}"
+keyed_groups:
+  - key: instance_id
+    prefix: aap
+groups:
+  aap_deployment: "'aap/' in (tags.Name)"
+  aap_hubs: "'aap/hub/' in (tags.Name)"
+  aap_controllers: "'aap/controller/' in (tags.Name)"
+compose:
+  ansible_python_interpreter: "'/usr/bin/python3.9'"
+  ansible_ssh_pipelining: true
+  ansible_host: instance_id

@@ -1,0 +1,64 @@
+# aws_common_vars
+#
+# The following parameters are required:
+# - aws_foundation_stack_name
+# - aws_region
+# - aws_launch_template_name
+# - aws_autoscaling_group_name
+# - aws_offer_type
+# - aws_asg_min_size
+# - aws_asg_desired_capacity
+
+# The following variables will be populated:
+# - aws_instance_type
+# - aws_asg_max_size
+
+---
+
+- name: "[common_vars] Ensure playbook is configured correctly"
+  block:
+    - name: "[common_vars] Assert vars are defined"
+      loop:
+        - aws_foundation_stack_name
+        - aws_region
+        - aws_launch_template_name
+        - aws_autoscaling_group_name
+        - aws_offer_type
+        - aws_asg_min_size
+        - aws_asg_desired_capacity
+      ansible.builtin.assert:
+        that: 
+          - "{{ item }} is defined"
+          - "{{ item }} != ''"
+        msg: "Variable {{ item }} is not defined"
+    - name: "[common_vars] Validate offer type"
+      when: 
+        - aws_offer_type | int != 100
+        - aws_offer_type | int != 200
+        - aws_offer_type | int != 400
+      fail:
+        msg: "Unknown offer type detected. Must be of - 100, 200, or 400"
+    - name: "Validate seller type"
+      when: 
+        - seller_name != "redhatinc"
+        - seller_name != "redhatlimited"
+      fail:
+        msg: "Unknown seller_name detected. Must be either 'redhatinc' or 'redhatlimited'. Default is 'redhatinc'"
+    - name: "[common_vars] Set instance type to m5.large"
+      ansible.builtin.set_fact: 
+        aws_instance_type: "m5.large"
+        aws_asg_max_size: 100
+        aws_ami_id: "{{ amis[seller_name]['extensions']['extension_node_ami_100'][aws_region] }}"
+      when: aws_offer_type | int == 100
+    - name: "[common_vars] Set instance type to m5.xlarge"
+      ansible.builtin.set_fact: 
+        aws_instance_type: "m5.xlarge"
+        aws_asg_max_size: 200
+        aws_ami_id: "{{ amis[seller_name]['extensions']['extension_node_ami_200'][aws_region] }}"
+      when: aws_offer_type | int == 200
+    - name: "[common_vars] Set instance type to m5.2xlarge"
+      ansible.builtin.set_fact: 
+        aws_instance_type: "m5.2xlarge"
+        aws_asg_max_size: 400
+        aws_ami_id: "{{ amis[seller_name]['extensions']['extension_node_ami_400'][aws_region] }}"
+      when: aws_offer_type | int == 400

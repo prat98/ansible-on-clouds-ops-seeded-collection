@@ -1,0 +1,8 @@
+{{ '{' }}
+"Recovery_Point_Arn": {{ latest_efs_restore_point_arn.stdout }}{{ ',' }}
+"Backup_Vault_Name": "{{ aws_backup_vault_name }}"{{ ',' }}
+"Backup_IAM_Role": "{{ aws_backup_iam_role_arn }}"{{ ',' }}
+"Region": "{{ aws_region }}"{{ ',' }}
+"EFS_Id": "{{ aws_efs_physical_id }}"{{ ',' }}
+"aoc_version": "{{ aoc_version }}"
+{{ '}' }}

@@ -1,0 +1,17 @@
+---
+
+- name: Convert the list to a dict without the "{{ extra_vars_prefx }}" prefix
+  vars:
+    env_vars_keys: "{{ ansible_env | select('match', '^'+extra_vars_prefx) | list }}"
+  set_fact:
+    extra_vars: |
+      {
+      {%- for item in env_vars_keys -%}
+      "{{ item | regex_replace('^'+extra_vars_prefx, '') }}": "{{ ansible_env[item] }}" {%- if not loop.last %},{% endif %}
+      {%- endfor -%}
+      }
+
+- name: Load each extra var into the current scope
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  with_dict: "{{ extra_vars }}"

@@ -1,0 +1,15 @@
+- name: Check Operations images and Ansible on Cloud deployment versions
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  tasks:
+
+  - name: Check Operations images and Ansible on Cloud deployment versions
+    ansible.builtin.include_role:
+      name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+      apply:
+        vars:
+          ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+          hubs: "{{ groups['aap_hubs'] }}"
+          filesystem: "/aap"

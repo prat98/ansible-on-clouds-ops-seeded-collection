@@ -1,0 +1,137 @@
+---
+
+- name: Create external load balancers for existing Ansible Automation Platform on Google Cloud Platform deployment
+  hosts: localhost
+  connection: local
+  remote_user: awx
+
+  vars:
+    gcp_service_account_credentials_json_path: ./path/to/credentials.json
+    gcp_compute_region: "us-east1"
+    gcp_compute_zone: "us-east1-b"
+    gcp_project_id: "{{ (lookup('file', gcp_service_account_credentials_json_path) | from_json).project_id }}"
+
+
+  tasks:
+    - name: Check Operations images and Ansible on Cloud deployment versions
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_check_aoc_version
+        apply:
+          vars:
+            ansible_connection: redhat.ansible_on_clouds.gcp_ssh
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/aap"
+
+    - name: "Load 'gcloud_auth' task file"
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/standalone_gcp_core_dev/tasks/auth.yaml"
+
+    - name: Check for existing deployment {{ gcp_deployment_name }}
+      environment:
+        # Set environment variables
+        CLOUDSDK_CORE_ACCOUNT: "{{ (lookup('file', gcp_service_account_credentials_json_path) | from_json).client_email }}"
+        CLOUDSDK_CORE_PROJECT: "{{ (lookup('file', gcp_service_account_credentials_json_path) | from_json).project_id }}"
+        CLOUDSDK_COMPUTE_REGION: "{{ gcp_compute_region }}"
+        CLOUDSDK_COMPUTE_ZONE: "{{ gcp_compute_zone }}"
+
+      block:
+        - name: Get deployments list
+          ansible.builtin.command:
+            cmd: "gcloud deployment-manager deployments list --format='table[no-heading](name)'"
+          register: deployment_list
+          changed_when: false
+
+        - name: Check if deployment exist
+          set_fact:
+            deployment_exist: "{{ gcp_deployment_name in deployment_list.stdout_lines }}"
+
+
+        - name: debug deployment_exist
+          ansible.builtin.debug:
+            msg:
+              - "Deployment exist: {{ deployment_exist }}"
+              - "Deployment list: {{ deployment_list.stdout_lines }}"
+
+        - name: Creating external IP address for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute addresses create {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-ip2 --network-tier=STANDARD --region={{ gcp_compute_region }} --project={{ gcp_project_id }}"
+
+        - name: Creating health check for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute health-checks create http {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-hc2 --check-interval=60 --port-name=aap-cntrlr-port --request-path=\"/api/v2/ping/\" --timeout=10 --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating backend-services for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute backend-services create {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-bknd-srv2 --affinity-cookie-ttl=86400 --health-checks={{ gcp_deployment_name }}-aap-cntrlr-ext-lb-hc2 --load-balancing-scheme=EXTERNAL_MANAGED --port-name=aap-cntrlr-port --protocol=HTTP --session-affinity=GENERATED_COOKIE --timeout=86400 --health-checks-region={{ gcp_compute_region }} --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Add instance group to backend-services for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute backend-services add-backend {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-bknd-srv2 --instance-group={{ gcp_deployment_name }}-aap-cntrlr-igm --balancing-mode=RATE --max-rate-per-instance=300 --instance-group-region={{ gcp_compute_region }} --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating url-maps for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute url-maps create {{ gcp_deployment_name }}-aap-cntrlr-ext-lb2 --default-service={{ gcp_deployment_name }}-aap-cntrlr-ext-lb-bknd-srv2 --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating target proxies for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute target-http-proxies create {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-tgt-http-prxy2 --url-map={{ gcp_deployment_name }}-aap-cntrlr-ext-lb2 --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating forwarding rules for controller
+          ansible.builtin.command:
+            cmd: "gcloud compute forwarding-rules create {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-http-fwd-rule2 --load-balancing-scheme=EXTERNAL_MANAGED --address={{ gcp_deployment_name }}-aap-cntrlr-ext-lb-ip2 --network-tier=STANDARD --target-http-proxy={{ gcp_deployment_name }}-aap-cntrlr-ext-lb-tgt-http-prxy2 --ports=80 --target-http-proxy-region={{ gcp_compute_region }} --network={{ gcp_deployment_name }}-aap-net --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Get IP address for accessing controller via external load balancer
+          ansible.builtin.command:
+            cmd: "gcloud compute forwarding-rules describe {{ gcp_deployment_name }}-aap-cntrlr-ext-lb-http-fwd-rule2 --region {{ gcp_compute_region }}  --project={{ gcp_project_id }} --format json"
+          register: controller_forwarding_rule_json
+
+        - name: Get controller IP address
+          ansible.builtin.set_fact:
+            controller_external_ip: "{{ (controller_forwarding_rule_json.stdout | from_json).IPAddress  }}"
+
+        - name: Show AAP controller IP address
+          ansible.builtin.debug:
+            msg:
+              - "AAP controller URL: http://{{ controller_external_ip }}"
+
+        - name: Creating external IP address for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute addresses create {{ gcp_deployment_name }}-aap-hub-ext-lb-ip2 --network-tier=STANDARD --region={{ gcp_compute_region }} --project={{ gcp_project_id }}"
+
+        - name: Creating health check for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute health-checks create http {{ gcp_deployment_name }}-aap-hub-ext-lb-hc2 --check-interval=60 --port-name=aap-hub-port --request-path=\"/api/galaxy/pulp/api/v3/status/\" --timeout=10 --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating backend-services for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute backend-services create {{ gcp_deployment_name }}-aap-hub-ext-lb-bknd-srv2 --affinity-cookie-ttl=86400 --health-checks={{ gcp_deployment_name }}-aap-hub-ext-lb-hc2 --load-balancing-scheme=EXTERNAL_MANAGED --port-name=aap-hub-port --protocol=HTTP --session-affinity=GENERATED_COOKIE --timeout=86400 --health-checks-region={{ gcp_compute_region }} --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Add instance group to backend-services for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute backend-services add-backend {{ gcp_deployment_name }}-aap-hub-ext-lb-bknd-srv2 --instance-group={{ gcp_deployment_name }}-aap-hub-igm --balancing-mode=RATE --max-rate-per-instance=300 --instance-group-region={{ gcp_compute_region }} --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating url-maps for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute url-maps create {{ gcp_deployment_name }}-aap-hub-ext-lb2 --default-service={{ gcp_deployment_name }}-aap-hub-ext-lb-bknd-srv2 --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating target proxies for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute target-http-proxies create {{ gcp_deployment_name }}-aap-hub-ext-lb-tgt-http-prxy2 --url-map={{ gcp_deployment_name }}-aap-hub-ext-lb2 --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Creating forwarding rules for hub
+          ansible.builtin.command:
+            cmd: "gcloud compute forwarding-rules create {{ gcp_deployment_name }}-aap-hub-ext-lb-http-fwd-rule2 --load-balancing-scheme=EXTERNAL_MANAGED --address={{ gcp_deployment_name }}-aap-hub-ext-lb-ip2 --network-tier=STANDARD --target-http-proxy={{ gcp_deployment_name }}-aap-hub-ext-lb-tgt-http-prxy2 --ports=80 --target-http-proxy-region={{ gcp_compute_region }} --network={{ gcp_deployment_name }}-aap-net --region={{ gcp_compute_region }}  --project={{ gcp_project_id }}"
+
+        - name: Get IP address for accessing hub via external load balancer
+          ansible.builtin.command:
+            cmd: "gcloud compute forwarding-rules describe {{ gcp_deployment_name }}-aap-hub-ext-lb-http-fwd-rule2 --region {{ gcp_compute_region }}  --project={{ gcp_project_id }} --format json"
+          register: hub_forwarding_rule_json
+
+        - name: Get hub IP address
+          ansible.builtin.set_fact:
+            hub_external_ip: "{{ (hub_forwarding_rule_json.stdout | from_json).IPAddress  }}"
+
+        - name: Show AAP hub IP address
+          ansible.builtin.debug:
+            msg:
+              - "AAP hub URL: http://{{ hub_external_ip }}"

@@ -1,0 +1,15 @@
+.vscode/
+venv/
+logs/
+inputs/
+playbooks/inventory/*.gcp.yaml
+*.gcp.yaml
+*.aws_ec2.yaml
+__pycache__
+execution-environments/ansible-on-clouds-internal-install/context
+execution-environments/ansible-on-clouds-ops/context
+*.log
+tests/output/
+/tmp
+# while building that functionnality
+ansible-on-clouds-ops-collection/2023-02-17-15-41-00

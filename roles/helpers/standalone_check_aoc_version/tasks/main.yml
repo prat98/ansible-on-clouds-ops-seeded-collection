@@ -1,0 +1,23 @@
+---
+
+- name: Get FORCE environment variable
+  ansible.builtin.set_fact:
+    force: "{{ (lookup('ansible.builtin.env', 'FORCE', default='false')) }}"
+
+- name: Compare versions
+  when: not force | bool
+  block:
+    - name: Get the AOC Version
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_get_aoc_version
+
+    - name: Get the OPS Version
+      ansible.builtin.set_fact:
+        ops_version: "{{ (lookup('file', '/ansible-on-clouds-ops-collection/VERSION')).split('\n')[0] }}"
+
+    - name: Verify operational playbook and Ansible on Clouds deployment versions
+      ansible.builtin.assert:
+        that:
+          - ops_version == aoc_version
+        fail_msg: "This operation playbook version {{ ops_version }} is not valid for the Ansible on Clouds deployment version {{ aoc_version }}"
+        success_msg: "This operation playbook version and the Ansible on Clouds deployment version are identical: {{ aoc_version }}"

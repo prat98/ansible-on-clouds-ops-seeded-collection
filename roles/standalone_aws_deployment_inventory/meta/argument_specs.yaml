@@ -1,0 +1,20 @@
+---
+argument_specs:
+  main:
+    description:
+      - TODO_DOC_HERE
+    short_description: This role generates the inventory for aws.
+    options:
+      aws_foundation_stack_name:
+        description: "Name of CloudFormation AAP foundation stack"
+        type: "str"
+        required: true
+      regions:
+        description: "List of AWS regions, comma seperated"
+        type: "list"
+        elements: "str"
+        required: true
+      output:
+        description: "destination of the generated inventory"
+        type: "str"
+        required: true

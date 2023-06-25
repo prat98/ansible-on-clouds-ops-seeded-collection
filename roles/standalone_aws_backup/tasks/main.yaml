@@ -1,0 +1,222 @@
+---
+
+- name: "[backup_stack] Backup AAP on AWS foundation stack"
+  block:
+    - name: "[backup_stack] Assert vars are defined"
+      loop:
+        - aws_foundation_stack_name
+        - aws_region
+        - aws_s3_bucket
+        - aws_ssm_bucket_name
+        - aws_backup_vault_name
+        - aws_backup_iam_role_arn
+      ansible.builtin.assert:
+        that:
+          - "{{ item }} is defined"
+          - "{{ item }} != ''"
+        msg: "Variable {{ item }} is not defined"
+
+    - name: "[backup_stack] Get EFS info"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: output=$(aws cloudformation describe-stacks --stack-name {{ aws_foundation_stack_name }} --query "Stacks[].Outputs[?contains(OutputKey, 'storageEFSID')].OutputValue" --output text) && basename $output
+      register: efs_info
+      when: aws_backup_vault_name|length > 0
+
+    - name: "[backup_stack] Set EFS facts"
+      when: aws_backup_vault_name|length > 0 
+      ansible.builtin.set_fact:
+        aws_efs_physical_id: "{{ efs_info.stdout }}"
+    
+    - name: "[backup_stack] Get EFS ARN"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell:  aws efs describe-file-systems --file-system-id {{ aws_efs_physical_id }} --query 'FileSystems[0].FileSystemArn' --output text
+      register: efs_arn
+      when: aws_backup_vault_name|length > 0
+    
+    - name: "[backup_stack] Pull RDS secret"
+      ansible.builtin.command: "aws secretsmanager get-secret-value --secret-id {{ aws_foundation_stack_name }}-aap-rds-secret --region {{ aws_region }} --query 'SecretString'"
+      register: rds_secret_string
+      no_log: true
+    
+    - name: "[backup_stack] Convert RDS Secret to dictionary"
+      ansible.builtin.set_fact:
+        rds_dict: "{{ rds_secret_string.stdout|from_json }}"
+      no_log: true
+    
+    - name: "[backup_stack] Save RDS secret as fact"
+      ansible.builtin.set_fact:
+        rds_secret: "{{ rds_dict.password }}"
+      no_log: true
+    
+    - name: "[backup_stack] Save RDS endpoint as fact"
+      ansible.builtin.set_fact:
+        rds_endpoint: "{{ rds_dict.host }}"
+    
+    - name: "[backup_stack] Get pulp user"
+      vars:
+        ansible_connection: redhat.ansible_on_clouds.aws_ssm
+        ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+        ansible_aws_ssm_region: "{{ aws_region }}"
+        ansible_aws_ssm_s3_addressing_style: "virtual"
+        ansible_python_interpreter: /usr/bin/python3
+      delegate_to: "{{ groups['aap_hubs'][0] }}"
+      become_user: awx
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          cat /etc/pulp/settings.py | grep "'USER':" | cut -d ':' -f 2 | cut -d "'" -f 2
+      register: pulp_user
+      changed_when: pulp_user.rc != 0
+    
+    - name: "[backup_stack] Get awx user"
+      vars:
+        ansible_connection: redhat.ansible_on_clouds.aws_ssm
+        ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+        ansible_aws_ssm_region: "{{ aws_region }}"
+        ansible_aws_ssm_s3_addressing_style: "virtual"
+        ansible_python_interpreter: /usr/bin/python3
+        filesystem: "/efs"
+      delegate_to: "{{ groups['aap_controllers'][0] }}"
+      become_user: awx
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          cat /etc/tower/conf.d/postgres.py | grep "'USER':" | cut -d ':' -f 2 | cut -d "'" -f 2
+      register: awx_user
+      changed_when: awx_user.rc != 0
+
+    - name: "[backup_stack] Create EFS Backup"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: aws backup start-backup-job --backup-vault-name {{ aws_backup_vault_name }} --resource-arn {{ efs_arn.stdout }} --iam-role-arn {{ aws_backup_iam_role_arn }}
+      register: aws_backup_on_demand
+      when: aws_backup_vault_name|length > 0
+  
+    - name: "[backup_stack] Set EFS backup facts"
+      when: aws_backup_vault_name|length > 0
+      ansible.builtin.set_fact:
+        aws_backup_job_id: "{{ (aws_backup_on_demand.stdout | from_json).BackupJobId }}"
+    
+    - name: "[backup_stack] Wait for EFS backup to complete"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: aws backup describe-backup-job --backup-job-id {{ aws_backup_job_id }}
+      register: aws_check_backup_complete
+      retries: 10
+      delay: 10
+      until: "'{{ (aws_check_backup_complete.stdout | from_json).State }}' == 'COMPLETED'"
+      when: aws_backup_vault_name|length > 0
+    
+    - name: "[backup_stack] Create SQL DB awx backup and store in s3"
+      vars:
+        ansible_connection: redhat.ansible_on_clouds.aws_ssm
+        ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+        ansible_aws_ssm_region: "{{ aws_region }}"
+        ansible_aws_ssm_s3_addressing_style: "virtual"
+        ansible_python_interpreter: /usr/bin/python3
+      delegate_to: "{{ groups['aap_controllers'][0] }}"
+      ansible.builtin.shell:
+        cmd:  "PGPASSWORD={{ rds_secret }} set -o pipefail && pg_dump --clean --create -h {{ rds_endpoint }} -U {{ awx_user.stdout }} -d awx -p 5432 -F custom | aws s3 cp - s3://{{ aws_s3_bucket }}/{{ aws_backup_name }}/{{ awx_backup_file }} --region {{ aws_region }}"
+      register: pg_dump_awx
+      changed_when: pg_dump_awx.rc != 0
+      no_log: true
+
+    - name: "[backup_stack] Create SQL DB pulp backup and store in s3"
+      vars:
+        ansible_connection: redhat.ansible_on_clouds.aws_ssm
+        ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+        ansible_aws_ssm_region: "{{ aws_region }}"
+        ansible_aws_ssm_s3_addressing_style: "virtual"
+        ansible_python_interpreter: /usr/bin/python3
+      delegate_to: "{{ groups['aap_hubs'][0] }}"
+      ansible.builtin.shell:
+        cmd: "PGPASSWORD={{ rds_secret }} set -o pipefail && pg_dump --clean --create -h {{ rds_endpoint }} -U {{ pulp_user.stdout }} -d pulp -p 5432 -F custom | aws s3 cp - s3://{{ aws_s3_bucket }}/{{ aws_backup_name }}/{{ pulp_backup_file }} --region {{ aws_region }}"
+      register: pg_dump_pulp
+      changed_when: pg_dump_pulp.rc != 0
+      no_log: true
+    
+    - name: "[backup_stack] Get stack secrets"
+      ansible.builtin.command: "aws secretsmanager get-secret-value --secret-id {{ aws_foundation_stack_name }}-{{ item }} --region {{ aws_region }} --query 'SecretString' --output text"
+      register: secret_values
+      loop: "{{ secrets_names }}"
+      no_log: true
+    
+    - name: "[backup_stack] Get stack parameters"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: aws cloudformation describe-stacks --stack-name {{ aws_foundation_stack_name }} --query 'Stacks[0].Parameters'
+      register: stack_parameters
+    
+    - name: "[backup_stack] Get EFS Recovery Point ARN"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: "aws backup list-recovery-points-by-backup-vault --backup-vault-name {{ aws_backup_vault_name }} --query 'RecoveryPoints[?ResourceArn == `{{ efs_arn.stdout }}`].RecoveryPointArn | [0]'"
+      register: latest_efs_restore_point_arn
+      when: aws_backup_vault_name|length > 0
+
+    - name: "[backup_stack] Create tempfile for secret"
+      ansible.builtin.tempfile:
+        prefix: "{{ aws_foundation_stack_name }}"
+        suffix: "-secrets.json"
+      register: secret_file
+
+    - name: "[backup_stack] Save stack secrets to file"
+      ansible.builtin.template:
+        src: secrets.json.j2
+        dest: "{{ secret_file.path }}"
+        mode: '0644'
+      no_log: true
+
+    - name: "[backup_stack] Save stack parameters to file"
+      ansible.builtin.copy:
+        content: "{{ stack_parameters.stdout | to_nice_json }}"
+        dest: "{{ aws_stack_params_filename }}"
+    
+    - name: "[backup_stack] Get AOC version"
+      ansible.builtin.include_role:
+        name: redhat.ansible_on_clouds.helpers.standalone_get_aoc_version
+        apply:
+          vars:
+            ansible_connection: "aws_ssm"
+            ansible_aws_ssm_bucket_name: "{{ aws_ssm_bucket_name }}"
+            ansible_aws_ssm_region: "{{ aws_region }}"
+            ansible_aws_ssm_s3_addressing_style: "virtual"
+            ansible_python_interpreter: /usr/bin/python3
+            hubs: "{{ groups['aap_hubs'] }}"
+            filesystem: "/efs"
+
+    - name: "[backup_stack] Save restore vars to file"
+      ansible.builtin.template:
+        src: restore_vars.json.j2
+        dest: "{{ aws_restore_vars_filename }}"
+        mode: '0644'
+    
+    # will return nothing to stdout if bucket exists
+    - name: "[backup_stack] Check if need to create bucket"
+      ansible.builtin.shell: if aws s3api head-bucket --bucket {{ aws_s3_bucket }} 2>/dev/null; then echo "False"; else echo "True"; fi
+      register: create_bucket
+    
+    - name: "[backup_stack] Create bucket if non-existent"
+      ansible.builtin.shell: aws s3api create-bucket --bucket {{ aws_s3_bucket }} --region {{ aws_region }}
+      when: "{{ create_bucket.stdout }} == True"
+
+    - name: "[backup_stack] Push stack parameters file to s3 bucket"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: aws s3 cp {{ aws_stack_params_filename }} s3://{{ aws_s3_bucket }}/{{ aws_backup_name }}/{{ aws_stack_params_filename }} --region {{ aws_region }}
+    
+    - name: "[backup_stack] Push stack secrets file to s3 bucket"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: aws s3 cp {{ secret_file.path }} s3://{{ aws_s3_bucket }}/{{ aws_backup_name }}/{{ aws_stack_secrets_filename }} --region {{ aws_region }}
+    
+    - name: "[backup_stack] Remove temp secrets file"
+      ansible.builtin.file:
+        path: "{{ secret_file.path }}"
+        state: absent
+      when: secret_file.path is defined
+    
+    - name: "[backup_stack] Push stack restore vars file to s3 bucket"
+      environment: "{{ aws_env_auth_vars }}"
+      ansible.builtin.shell: aws s3 cp {{ aws_restore_vars_filename }} s3://{{ aws_s3_bucket }}/{{ aws_backup_name }}/{{ aws_restore_vars_filename }} --region {{ aws_region }}
+
+    - name: "[backup_stack] Successful Backup"
+      ansible.builtin.debug:
+        msg: 
+          - "Successfully backed up {{ aws_foundation_stack_name }}!"
+          - "Your backup files can be found at:"
+          - "https://s3.console.aws.amazon.com/s3/buckets/{{ aws_s3_bucket }}?region={{ aws_region }}&prefix={{ aws_backup_name }}/&showversions=false"

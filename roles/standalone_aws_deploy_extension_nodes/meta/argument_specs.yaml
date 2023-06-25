@@ -1,0 +1,70 @@
+---
+
+argument_specs:
+  main:
+    # Create a multline string that creates a list of strings
+    description:
+      - |
+        Deploys extension nodes on AAP on AWS.
+
+      - |
+        Inputs example
+
+        1. Set your input variables:
+
+        ::
+
+          # ./inputs/vars.yaml
+          #
+          # AoC AWS: Deploy Extension Vars
+          ---
+          aws_foundation_stack_name: "aoc-prod"               # Name of your foundation stack
+          aws_region: us-east-1                               # AWS region of foundation stack
+          aws_offer_type: 100                                 # Must be 100, 200, or 400
+          aws_launch_template_name: extension-group-template  # EC2 Launch template name
+          aws_autoscaling_group_name: extension-group-asg     # Autoscaling group name
+          aws_asg_min_size: 1                                 # ASG minimum size
+          aws_asg_desired_capacity: 1                         # ASG desired capacity
+
+        2. Run the command:
+
+        ::
+          ansible-playbook -e @inputs/vars.yaml redhat.ansible_on_clouds.standalone_aws_deploy_extension_nodes
+      - |-
+        *Authors*
+        - Zack Kayyali (@zack-kayyali)
+
+    short_description: Deploys extension nodes on AAP on AWS.
+    options:
+      aws_foundation_stack_name:
+        description: AoC AWS deployment name
+        type: "str"
+        required: True
+      aws_region:
+        description: AWS compute region
+        type: "str"
+        required: True
+      aws_offer_type:
+        description: Name of the AWS backup vault for EFS backups
+        type: "str"
+        required: True
+      aws_launch_template_name:
+        description: EC2 Launch template name
+        type: "str"
+        required: True
+      aws_autoscaling_group_name: 
+        description: Autoscaling group name
+        type: "str"
+        required: True
+      aws_asg_min_size: 
+        description: Autoscaling group minimum size
+        type: "int"
+        required: True
+      aws_asg_desired_capacity:
+        description: Autoscaling group desired capacity
+        type: "int"
+        required: True
+      seller_name:
+        description: The name of the seller on AWS Marketplace. Must be 'redhatinc' or 'redhatlimited'. Default is 'redhatinc'
+        type: "str"
+        required: False

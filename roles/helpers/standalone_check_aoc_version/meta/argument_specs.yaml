@@ -1,0 +1,8 @@
+---
+
+argument_specs:
+  main:
+    # Create a multline string that creates a list of strings
+    description:
+      - Retreive the AOC AAP version and compare it with the OPS image version and failed if they are not equal.
+    short_description: This role checks the AOC AAP version s equal to the OPS image version.
